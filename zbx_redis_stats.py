@@ -1,13 +1,22 @@
 #!/usr/bin/python
 
-import sys, redis, json, re, struct, time, socket, argparse
+import sys
+import redis
+import json
+import re
+import struct
+import time
+import socket
+import argparse
 
 parser = argparse.ArgumentParser(description='Zabbix Redis status script')
-parser.add_argument('redis_hostname',nargs='?')
-parser.add_argument('metric',nargs='?')
-parser.add_argument('db',default='none',nargs='?')
-parser.add_argument('-p','--port',dest='redis_port',action='store',help='Redis server port',default=6379,type=int)
-parser.add_argument('-a','--auth',dest='redis_pass',action='store',help='Redis server pass',default=None)
+parser.add_argument('redis_hostname', nargs='?')
+parser.add_argument('metric', nargs='?')
+parser.add_argument('db', default='none', nargs='?')
+parser.add_argument('-p', '--port', dest='redis_port', action='store',
+                    help='Redis server port', default=6379, type=int)
+parser.add_argument('-a', '--auth', dest='redis_pass',
+                    action='store', help='Redis server pass', default=None)
 args = parser.parse_args()
 
 zabbix_host = '127.0.0.1'       # Zabbix Server IP
@@ -15,6 +24,7 @@ zabbix_port = 10051             # Zabbix Server Port
 
 # Name of monitored server like it shows in zabbix web ui display
 redis_hostname = args.redis_hostname if args.redis_hostname else socket.gethostname()
+
 
 class Metric(object):
     def __init__(self, host, key, value, clock=None):
@@ -28,8 +38,10 @@ class Metric(object):
         if self.clock is None:
             result = 'Metric(%r, %r, %r)' % (self.host, self.key, self.value)
         else:
-            result = 'Metric(%r, %r, %r, %r)' % (self.host, self.key, self.value, self.clock)
+            result = 'Metric(%r, %r, %r, %r)' % (
+                self.host, self.key, self.value, self.clock)
         return result
+
 
 def send_to_zabbix(metrics, zabbix_host='127.0.0.1', zabbix_port=10051):
     result = None
@@ -37,10 +49,12 @@ def send_to_zabbix(metrics, zabbix_host='127.0.0.1', zabbix_port=10051):
     metrics_data = []
     for m in metrics:
         clock = m.clock or ('%d' % time.time())
-        metrics_data.append(('{"host":%s,"key":%s,"value":%s,"clock":%s}') % (j(m.host), j(m.key), j(m.value), j(clock)))
-    json_data = ('{"request":"sender data","data":[%s]}') % (','.join(metrics_data))
+        metrics_data.append(('{"host":%s,"key":%s,"value":%s,"clock":%s}') % (
+            j(m.host), j(m.key), j(m.value), j(clock)))
+    json_data = ('{"request":"sender data","data":[%s]}') % (
+        ','.join(metrics_data))
     data_len = struct.pack('<Q', len(json_data))
-    packet = 'ZBXD\x01'+ data_len + json_data
+    packet = 'ZBXD\x01' + data_len + json_data
 
     # For debug:
     # print(packet)
@@ -73,18 +87,21 @@ def send_to_zabbix(metrics, zabbix_host='127.0.0.1', zabbix_port=10051):
     finally:
         return result
 
+
 def _recv_all(sock, count):
     buf = ''
-    while len(buf)<count:
+    while len(buf) < count:
         chunk = sock.recv(count-len(buf))
         if not chunk:
             return buf
         buf += chunk
     return buf
 
+
 def main():
     if redis_hostname and args.metric:
-        client = redis.StrictRedis(host=redis_hostname, port=args.redis_port, password=args.redis_pass)
+        client = redis.StrictRedis(
+            host=redis_hostname, port=args.redis_port, password=args.redis_pass)
         server_info = client.info()
 
         if args.metric:
@@ -104,25 +121,38 @@ def main():
                 print(llensum)
 
             def list_key_space_db():
-                if args.db in server_info:
-                    print(args.db)
-                else:
-                    print('database_detect')
+                dbList = []
+                for dbNum in range(0, 100):
+                    db_name = ("db%s" % dbNum)
+                    if db_name in server_info.keys():
+                        dbList.append({'{#DBNAME}': db_name})
+                print(json.dumps({'data': dbList}, sort_keys=True,
+                                 indent=4, separators=(',', ':')))
 
             def default():
                 if args.metric in server_info.keys():
                     print(server_info[args.metric])
 
+            def dbsize():
+                dbsizeSum = 0
+                for dbNum in range(0, 16):
+                    db_name = ("db%s" % dbNum)
+                    if db_name in server_info.keys():
+                        dbsizeSum += server_info[db_name]['keys']
+                print(dbsizeSum)
+
             {
                 'llen': llen,
                 'llenall': llensum,
                 'list_key_space_db': list_key_space_db,
+                'dbsize': dbsize
             }.get(args.metric, default)()
 
         else:
             print('Not selected metric')
     else:
-        client = redis.StrictRedis(host=redis_hostname, port=args.redis_port, password=args.redis_pass)
+        client = redis.StrictRedis(
+            host=redis_hostname, port=args.redis_port, password=args.redis_pass)
         server_info = client.info()
 
         a = []
@@ -137,6 +167,7 @@ def main():
 
         # Send packet to zabbix
         send_to_zabbix(a, zabbix_host, zabbix_port)
+
 
 if __name__ == '__main__':
     main()
